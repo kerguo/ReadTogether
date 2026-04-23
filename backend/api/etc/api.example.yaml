@@ -1,0 +1,19 @@
+Name: readtogether-api
+Host: 0.0.0.0
+Port: 4000
+Timeout: 60000
+MaxBytes: 31457280
+
+Supabase:
+  url: https://klikuzbigkwcapkkwseg.supabase.co
+  serviceKey: ${SUPABASE_SERVICE_ROLE_KEY}
+  anonKey: ${SUPABASE_ANON_KEY}
+  databaseUrl: ${SUPABASE_DB_URL}
+  bucket: documents
+
+TextService:
+  baseUrl: http://localhost:8888
+  timeout: 15
+
+Storage:
+  maxUploadBytes: 26214400

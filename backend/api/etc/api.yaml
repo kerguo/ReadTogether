@@ -1,0 +1,19 @@
+Name: readtogether-api
+Host: 0.0.0.0
+Port: 4000
+Timeout: 60000
+MaxBytes: 31457280
+
+Supabase:
+  url: https://klikuzbigkwcapkkwseg.supabase.co
+  serviceKey: sb_publishable_escKlY5KEEvD1t4jodhQQg_OQmFbEEM
+  anonKey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsaWt1emJpZ2t3Y2Fwa2t3c2VnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwMTA4NDksImV4cCI6MjA4NTU4Njg0OX0.y3kg2wAEOpmDpKuUuO3gsufYeIODPH-V66mHwATB3uA
+  databaseUrl: postgresql://postgres.klikuzbigkwcapkkwseg:[YOUR-PASSWORD]@aws-1-ap-south-1.pooler.supabase.com:6543/postgres?pgbouncer=true
+  bucket: documents
+
+TextService:
+  baseUrl: http://localhost:8888
+  timeout: 15
+
+Storage:
+  maxUploadBytes: 26214400

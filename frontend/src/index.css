@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap');
+
+@theme {
+  --color-surface: #faf9f6;
+  --color-surface-dim: #dbdad7;
+  --color-surface-bright: #faf9f6;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f4f3f1;
+  --color-surface-container: #efeeeb;
+  --color-surface-container-high: #e9e8e5;
+  --color-surface-container-highest: #e3e2e0;
+  
+  --color-on-surface: #1a1c1a;
+  --color-on-surface-variant: #43474b;
+  
+  --color-primary: #051521;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #1a2a36;
+  --color-on-primary-container: #8191a0;
+  
+  --color-secondary: #476550;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #c6e8cd;
+  --color-on-secondary-container: #4b6954;
+  
+  --color-tertiary: #2a0800;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #491905;
+  --color-on-tertiary-container: #c67d61;
+
+  --color-tertiary-fixed-dim: #ffb59a;
+  
+  --font-serif: "Newsreader", serif;
+  --font-sans: "Inter", sans-serif;
+
+  --radius-xl: 1.5rem;
+  --radius-lg: 1rem;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-sans;
+  }
+  
+  h1, h2, h3, h4 {
+    @apply font-serif;
+  }
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

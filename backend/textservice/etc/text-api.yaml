@@ -1,0 +1,13 @@
+Name: text-api
+Host: 0.0.0.0
+Port: 8888
+# 上传大小限制，单位字节，默认 20MB
+MaxUploadBytes: 20000000
+# 提取的最大页数，默认 10 页
+MaxPages: 10
+MaxBytes: 25000000  # go-zero 请求体上限，需 >= MaxUploadBytes
+
+Log:
+  ServiceName: text-api
+  Mode: console
+  Encoding: plain
