@@ -6,6 +6,15 @@ Frontend code lives in the **`frontend/`** folder.
 cd frontend && npm install && npm run dev
 ```
 
+## Vercel 部署
+
+在 Vercel 项目 **Settings → General → Root Directory** 中，只能使用下面**两种之一**：
+
+1. **推荐：** 填 **`frontend`**（指向含 `package.json` 的源码目录，不要选 `dist` 或 `frontend/dist`）。构建由 `frontend/vercel.json` 与 Vite 完成，产物为 `frontend/dist`。
+2. **备选：** 留空（使用**仓库根目录**），由仓库根目录的 `vercel.json` 中 `cd frontend && …` 负责构建与输出路径。
+
+`dist` / `frontend/dist` 是 `npm run build` 的**输出目录**，不会出现在 Git 里，**不要**设成 Root Directory。
+
 ---
 
 # React + Vite (frontend)
