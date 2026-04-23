@@ -166,7 +166,12 @@ export default function App() {
                 />
               )}
               {currentView === 'library' && <LibraryView onStartReading={startReading} />}
-              {currentView === 'profile' && <ProfileView />}
+              {currentView === 'profile' && (
+                <ProfileView
+                  onStartReading={startReading}
+                  onViewLibrary={() => handleNavigate('library')}
+                />
+              )}
               {currentView === 'reading-room' && <ReadingRoomView book={readingBook} />}
             </motion.div>
           </AnimatePresence>
@@ -778,7 +783,13 @@ function ReadingRoomView({ book }: { book: Book }) {
   );
 }
 
-function ProfileView() {
+function ProfileView({
+  onStartReading,
+  onViewLibrary,
+}: {
+  onStartReading: (bookId?: string) => void;
+  onViewLibrary: () => void;
+}) {
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-12 pb-24">
        <section className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
@@ -826,15 +837,26 @@ function ProfileView() {
             <div className="space-y-6">
                <div className="flex justify-between items-end">
                   <h3 className="text-3xl font-serif text-primary">Currently Reading</h3>
-                  <button className="text-[10px] font-bold uppercase tracking-widest text-secondary hover:underline">View All</button>
+                  <button
+                    type="button"
+                    onClick={onViewLibrary}
+                    className="text-[10px] font-bold uppercase tracking-widest text-secondary hover:underline"
+                  >
+                    View All
+                  </button>
                </div>
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {BOOKS.filter(b => b.progress).map(book => (
-                    <div key={book.id} className="bg-white p-5 rounded-2xl border border-surface-container flex gap-5 shadow-sm hover:shadow-md transition-shadow">
-                       <img src={book.cover} alt="cover" className="w-24 h-36 rounded-lg object-cover shadow-sm" />
-                       <div className="flex flex-col justify-between py-1 flex-grow">
+                    <button
+                      key={book.id}
+                      type="button"
+                      onClick={() => onStartReading(book.id)}
+                      className="text-left bg-white p-5 rounded-2xl border border-surface-container flex gap-5 shadow-sm hover:shadow-md transition-shadow cursor-pointer w-full"
+                    >
+                       <img src={book.cover} alt="" className="w-24 h-36 rounded-lg object-cover shadow-sm shrink-0" />
+                       <div className="flex flex-col justify-between py-1 flex-grow min-w-0">
                           <div className="space-y-1">
-                             <h4 className="text-lg font-serif font-bold text-primary">{book.title}</h4>
+                             <h4 className="text-lg font-serif font-bold text-primary line-clamp-2">{book.title}</h4>
                              <p className="text-xs text-on-surface-variant italic">{book.author}</p>
                           </div>
                           <div className="space-y-2">
@@ -847,7 +869,7 @@ function ProfileView() {
                              </div>
                           </div>
                        </div>
-                    </div>
+                    </button>
                   ))}
                </div>
             </div>
