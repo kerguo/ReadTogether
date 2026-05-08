@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { 
   Library, 
   Home as HomeIcon, 
@@ -23,21 +23,96 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BOOKS, ANNOTATIONS, MESSAGES, CURRENT_USER } from './mockData';
-import type { Book } from './types';
+import type { Book, Message } from './types';
+import {
+  clearAccessToken,
+  createDiscussionMessage,
+  listDiscussionMessages,
+  getWechatQrStatus,
+  getCurrentUser,
+  getStoredAccessToken,
+  login,
+  mockConfirmWechatQr,
+  register,
+  resendVerification,
+  saveAccessToken,
+  startWechatQrLogin,
+  verifyEmail,
+  type AuthResponse,
+  type AuthUser,
+  type DiscussionMessageResponse,
+  type RegisterResponse,
+} from './api/auth';
 
 // --- Sub-components (Views) will be defined here or imported ---
 
 type View = 'login' | 'home' | 'library' | 'reading-room' | 'profile';
+type AuthMode = 'login' | 'register';
+type AuthAction =
+  | { action: 'login'; email: string; password: string }
+  | { action: 'register'; email: string; password: string; displayName: string }
+  | { action: 'verifyEmail'; email: string; verificationCode: string }
+  | { action: 'resendVerification'; email: string };
 
 /** 优先续读：第一本有进度的书，否则列表第一本 */
 function getContinueReadingBook(): Book {
   return BOOKS.find((b) => b.progress != null) ?? BOOKS[0];
 }
 
+function formatMessageTimestamp(date: Date): string {
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+function getInitialDiscussionMessages(bookId: string): Message[] {
+  return bookId === '1' ? MESSAGES : [];
+}
+
+function mapDiscussionMessage(message: DiscussionMessageResponse): Message {
+  return {
+    id: `db-${message.id}`,
+    authorName: message.authorName,
+    authorAvatar: message.authorAvatar,
+    text: message.text,
+    timestamp: formatMessageTimestamp(new Date(message.createdAt)),
+  };
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('login');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [readingBookId, setReadingBookId] = useState<string>(() => getContinueReadingBook().id);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authInitializing, setAuthInitializing] = useState(true);
+  const [authError, setAuthError] = useState('');
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [discussionMessagesByBook, setDiscussionMessagesByBook] = useState<Record<string, Message[]>>({
+    '1': MESSAGES,
+  });
+  const [discussionError, setDiscussionError] = useState('');
+
+  useEffect(() => {
+    const token = getStoredAccessToken();
+    if (!token) {
+      setAuthInitializing(false);
+      return;
+    }
+
+    getCurrentUser(token)
+      .then((user) => {
+        setAuthUser(user);
+        setCurrentView('home');
+      })
+      .catch(() => {
+        clearAccessToken();
+      })
+      .finally(() => {
+        setAuthInitializing(false);
+      });
+  }, []);
 
   const handleNavigate = (view: View) => {
     setCurrentView(view);
@@ -50,10 +125,140 @@ export default function App() {
     handleNavigate('reading-room');
   };
 
+  const handleAuthenticate = async (
+    payload: AuthAction
+  ): Promise<RegisterResponse | void> => {
+    setIsAuthenticating(true);
+    setAuthError('');
+    try {
+      if (payload.action === 'register') {
+        return await register({
+          email: payload.email,
+          password: payload.password,
+          displayName: payload.displayName.trim(),
+        });
+      }
+      if (payload.action === 'resendVerification') {
+        return await resendVerification(payload.email);
+      }
+
+      const response = payload.action === 'verifyEmail'
+        ? await verifyEmail({
+            email: payload.email,
+            verificationCode: payload.verificationCode,
+          })
+        : await login({ email: payload.email, password: payload.password });
+      saveAccessToken(response.accessToken);
+      setAuthUser(response.user);
+      handleNavigate('home');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Authentication failed';
+      setAuthError(message);
+      throw error;
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const handleLogout = () => {
+    clearAccessToken();
+    setAuthUser(null);
+    setAuthError('');
+    setCurrentView('login');
+  };
+
+  const handleWechatAuthSuccess = (response: AuthResponse) => {
+    saveAccessToken(response.accessToken);
+    setAuthUser(response.user);
+    setAuthError('');
+    handleNavigate('home');
+  };
+
+  useEffect(() => {
+    if (!authUser) {
+      return;
+    }
+    const token = getStoredAccessToken();
+    if (!token) {
+      return;
+    }
+
+    let cancelled = false;
+    setDiscussionError('');
+    listDiscussionMessages(readingBookId, token)
+      .then((messages) => {
+        if (cancelled) {
+          return;
+        }
+        setDiscussionMessagesByBook((prev) => ({
+          ...prev,
+          [readingBookId]: [
+            ...getInitialDiscussionMessages(readingBookId),
+            ...messages.map(mapDiscussionMessage),
+          ],
+        }));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setDiscussionError(error instanceof Error ? error.message : 'Failed to load discussion messages');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser, readingBookId]);
+
+  const handlePostDiscussionMessage = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+    const token = getStoredAccessToken();
+    if (!token) {
+      throw new Error('Please sign in before joining the discussion');
+    }
+    setDiscussionError('');
+    try {
+      const savedMessage = await createDiscussionMessage(readingBookId, token, trimmed);
+      const mappedMessage = mapDiscussionMessage(savedMessage);
+      setDiscussionMessagesByBook((prev) => {
+        const existing = prev[readingBookId] ?? getInitialDiscussionMessages(readingBookId);
+        if (existing.some((message) => message.id === mappedMessage.id)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [readingBookId]: [...existing, mappedMessage],
+        };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save discussion message';
+      setDiscussionError(message);
+      throw error;
+    }
+  };
+
   const readingBook = BOOKS.find((b) => b.id === readingBookId) ?? BOOKS[0];
+  const discussionMessages = discussionMessagesByBook[readingBook.id] ?? getInitialDiscussionMessages(readingBook.id);
+
+  if (authInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-primary text-on-primary font-serif">
+        Restoring session...
+      </div>
+    );
+  }
 
   if (currentView === 'login') {
-    return <LoginView onLogin={() => handleNavigate('home')} />;
+    return (
+      <LoginView
+        onAuthenticate={handleAuthenticate}
+        onWechatAuthSuccess={handleWechatAuthSuccess}
+        errorMessage={authError}
+        loading={isAuthenticating}
+      />
+    );
   }
 
   return (
@@ -112,6 +317,13 @@ export default function App() {
           >
             Start Reading
           </button>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full border border-surface-container-highest text-on-surface py-2.5 px-4 rounded-lg font-serif text-sm hover:bg-surface-container-low transition-colors"
+          >
+            Log Out
+          </button>
         </div>
       </aside>
 
@@ -139,6 +351,13 @@ export default function App() {
             <button className="p-2 rounded-full hover:bg-surface-container text-on-surface transition-colors">
               <Settings size={20} />
             </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="hidden sm:inline-flex items-center rounded-full border border-surface-container px-3 py-1.5 text-xs font-semibold text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
+            >
+              Log out
+            </button>
             <div 
               className="w-8 h-8 rounded-full border border-surface-container cursor-pointer overflow-hidden ml-2"
               onClick={() => handleNavigate('profile')}
@@ -165,14 +384,30 @@ export default function App() {
                   onBrowseLibrary={() => handleNavigate('library')}
                 />
               )}
-              {currentView === 'library' && <LibraryView onStartReading={startReading} />}
-              {currentView === 'profile' && (
-                <ProfileView
+              {currentView === 'library' && (
+                <LibraryView
                   onStartReading={startReading}
-                  onViewLibrary={() => handleNavigate('library')}
+                  discussionMessages={discussionMessages}
+                  onPostDiscussionMessage={handlePostDiscussionMessage}
+                  discussionError={discussionError}
                 />
               )}
-              {currentView === 'reading-room' && <ReadingRoomView book={readingBook} />}
+              {currentView === 'profile' && (
+                <ProfileView
+                  authUser={authUser}
+                  onStartReading={startReading}
+                  onViewLibrary={() => handleNavigate('library')}
+                  onLogout={handleLogout}
+                />
+              )}
+              {currentView === 'reading-room' && (
+                <ReadingRoomView
+                  book={readingBook}
+                  discussionMessages={discussionMessages}
+                  onPostDiscussionMessage={handlePostDiscussionMessage}
+                  discussionError={discussionError}
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -264,7 +499,159 @@ function LibrarySection({ title, color, books, onSelectBook }: { title: string, 
 
 // --- Views Implementation ---
 
-function LoginView({ onLogin }: { onLogin: () => void }) {
+function LoginView({
+  onAuthenticate,
+  onWechatAuthSuccess,
+  errorMessage,
+  loading,
+}: {
+  onAuthenticate: (payload: AuthAction) => Promise<RegisterResponse | void>;
+  onWechatAuthSuccess: (response: AuthResponse) => void;
+  errorMessage: string;
+  loading: boolean;
+}) {
+  const [mode, setMode] = useState<AuthMode>('login');
+  const [displayName, setDisplayName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
+  const [verificationHint, setVerificationHint] = useState('');
+  const [localError, setLocalError] = useState('');
+  const [wechatDialogOpen, setWechatDialogOpen] = useState(false);
+  const [wechatSessionId, setWechatSessionId] = useState('');
+  const [wechatQrUrl, setWechatQrUrl] = useState('');
+  const [wechatStatusText, setWechatStatusText] = useState('');
+  const [wechatBusy, setWechatBusy] = useState(false);
+  const [wechatError, setWechatError] = useState('');
+  const needsVerification = mode === 'register' && pendingVerificationEmail.length > 0;
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLocalError('');
+
+    if (needsVerification) {
+      if (!/^\d{6}$/.test(verificationCode.trim())) {
+        setLocalError('Verification code must be 6 digits.');
+        return;
+      }
+      await onAuthenticate({
+        action: 'verifyEmail',
+        email: pendingVerificationEmail,
+        verificationCode: verificationCode.trim(),
+      });
+      return;
+    }
+
+    if (mode === 'register') {
+      if (displayName.trim().length < 2) {
+        setLocalError('Display name must be at least 2 characters.');
+        return;
+      }
+      if (password.length < 8) {
+        setLocalError('Password must be at least 8 characters.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setLocalError('Passwords do not match.');
+        return;
+      }
+      const result = await onAuthenticate({
+        action: 'register',
+        email,
+        password,
+        displayName,
+      });
+      if (result) {
+        setPendingVerificationEmail(result.email);
+        setVerificationHint(result.message);
+        setVerificationCode('');
+      }
+      return;
+    }
+
+    await onAuthenticate({
+      action: 'login',
+      email,
+      password,
+    });
+  };
+
+  const handleResendVerification = async () => {
+    setLocalError('');
+    const result = await onAuthenticate({
+      action: 'resendVerification',
+      email: pendingVerificationEmail,
+    });
+    if (result) {
+      setVerificationHint(result.message);
+    }
+  };
+
+  const handleOpenWechatDialog = async () => {
+    setWechatBusy(true);
+    setWechatError('');
+    try {
+      const response = await startWechatQrLogin();
+      setWechatSessionId(response.sessionId);
+      setWechatQrUrl(response.qrCodeUrl);
+      setWechatStatusText('Waiting for scan...');
+      setWechatDialogOpen(true);
+    } catch (error) {
+      setWechatError(error instanceof Error ? error.message : 'Failed to start WeChat QR login');
+    } finally {
+      setWechatBusy(false);
+    }
+  };
+
+  const handleMockWechatConfirm = async () => {
+    if (!wechatSessionId) {
+      return;
+    }
+    setWechatBusy(true);
+    setWechatError('');
+    try {
+      const result = await mockConfirmWechatQr({
+        sessionId: wechatSessionId,
+        wechatOpenId: `wx_${Date.now()}`,
+        displayName: 'WeChat Reader',
+      });
+      if (result.status === 'CONFIRMED' && result.auth) {
+        onWechatAuthSuccess(result.auth);
+        setWechatDialogOpen(false);
+      }
+    } catch (error) {
+      setWechatError(error instanceof Error ? error.message : 'Failed to confirm WeChat scan');
+    } finally {
+      setWechatBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!wechatDialogOpen || !wechatSessionId) {
+      return;
+    }
+    const timer = setInterval(async () => {
+      try {
+        const status = await getWechatQrStatus(wechatSessionId);
+        if (status.status === 'CONFIRMED' && status.auth) {
+          onWechatAuthSuccess(status.auth);
+          setWechatDialogOpen(false);
+          return;
+        }
+        if (status.status === 'EXPIRED') {
+          setWechatStatusText('QR code expired. Please refresh.');
+          return;
+        }
+        setWechatStatusText('Waiting for scan...');
+      } catch (error) {
+        setWechatError(error instanceof Error ? error.message : 'Failed to poll QR status');
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [wechatDialogOpen, wechatSessionId, onWechatAuthSuccess]);
+
   return (
     <div className="relative min-h-screen w-full flex flex-col items-center justify-center overflow-hidden font-sans">
       <div className="absolute inset-0 z-0">
@@ -292,33 +679,131 @@ function LoginView({ onLogin }: { onLogin: () => void }) {
           className="glass-panel rounded-xl p-10 shadow-2xl"
         >
           <header className="text-center mb-10">
-            <h1 className="text-4xl font-serif text-on-primary mb-2">Welcome Back</h1>
-            <p className="text-on-surface-variant text-stone-300 italic">Enter the quiet room of collective thought.</p>
+            <h1 className="text-4xl font-serif text-on-primary mb-2">
+              {needsVerification ? 'Verify Your Email' : mode === 'login' ? 'Welcome Back' : 'Create Account'}
+            </h1>
+            <p className="text-on-surface-variant text-stone-300 italic">
+              {needsVerification
+                ? `Enter the 6-digit code sent to ${pendingVerificationEmail}.`
+                : mode === 'login'
+                ? 'Enter the quiet room of collective thought.'
+                : 'Join the library and begin your first reading room.'}
+            </p>
           </header>
 
-          <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); onLogin(); }}>
-            <div className="space-y-1.5">
+          <form className="space-y-6" onSubmit={onSubmit}>
+            {mode === 'register' && !needsVerification && (
+              <div className="space-y-1.5">
+                <label className="block text-[10px] uppercase font-bold tracking-widest text-stone-300 ml-1">Display Name</label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Reader"
+                  autoComplete="name"
+                  className="w-full bg-white/10 border-none rounded-lg px-4 py-3 text-on-primary placeholder:text-stone-500 focus:ring-2 focus:ring-secondary focus:bg-white/20 transition-all outline-none"
+                />
+              </div>
+            )}
+            <div className={`space-y-1.5 ${needsVerification ? 'opacity-70' : ''}`}>
               <label className="block text-[10px] uppercase font-bold tracking-widest text-stone-300 ml-1">Email Address</label>
               <input 
                 type="email" 
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="scholar@readtogether.com" 
+                autoComplete="email"
+                disabled={needsVerification}
                 className="w-full bg-white/10 border-none rounded-lg px-4 py-3 text-on-primary placeholder:text-stone-500 focus:ring-2 focus:ring-secondary focus:bg-white/20 transition-all outline-none"
               />
             </div>
-            <div className="space-y-1.5">
-              <div className="flex justify-between items-center px-1">
-                <label className="block text-[10px] uppercase font-bold tracking-widest text-stone-300">Password</label>
-                <a href="#" className="text-[10px] uppercase font-bold tracking-widest text-secondary-container hover:text-white transition-colors">Forgot?</a>
+            {!needsVerification && (
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center px-1">
+                  <label className="block text-[10px] uppercase font-bold tracking-widest text-stone-300">Password</label>
+                  {mode === 'login' && (
+                    <a href="#" className="text-[10px] uppercase font-bold tracking-widest text-secondary-container hover:text-white transition-colors">Forgot?</a>
+                  )}
+                </div>
+                <input 
+                  type="password" 
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••" 
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  className="w-full bg-white/10 border-none rounded-lg px-4 py-3 text-on-primary placeholder:text-stone-500 focus:ring-2 focus:ring-secondary focus:bg-white/20 transition-all outline-none"
+                />
               </div>
-              <input 
-                type="password" 
-                placeholder="••••••••" 
-                className="w-full bg-white/10 border-none rounded-lg px-4 py-3 text-on-primary placeholder:text-stone-500 focus:ring-2 focus:ring-secondary focus:bg-white/20 transition-all outline-none"
-              />
-            </div>
-            <button className="w-full bg-secondary text-on-primary font-semibold py-4 rounded-lg hover:bg-secondary/90 active:scale-[0.98] transition-all shadow-lg shadow-secondary/20">
-              Sign In
+            )}
+            {mode === 'register' && !needsVerification && (
+              <div className="space-y-1.5">
+                <label className="block text-[10px] uppercase font-bold tracking-widest text-stone-300 ml-1">Confirm Password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  autoComplete="new-password"
+                  className="w-full bg-white/10 border-none rounded-lg px-4 py-3 text-on-primary placeholder:text-stone-500 focus:ring-2 focus:ring-secondary focus:bg-white/20 transition-all outline-none"
+                />
+              </div>
+            )}
+            {needsVerification && (
+              <div className="space-y-1.5">
+                <label className="block text-[10px] uppercase font-bold tracking-widest text-stone-300 ml-1">Verification Code</label>
+                <input
+                  type="text"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className="w-full bg-white/10 border-none rounded-lg px-4 py-3 tracking-[0.35em] text-center text-on-primary placeholder:text-stone-500 focus:ring-2 focus:ring-secondary focus:bg-white/20 transition-all outline-none"
+                />
+                {verificationHint && (
+                  <p className="text-[11px] text-stone-300">
+                    {verificationHint}
+                  </p>
+                )}
+              </div>
+            )}
+            {localError && (
+              <p className="text-xs text-red-200 bg-red-900/30 border border-red-200/30 rounded-lg px-3 py-2">
+                {localError}
+              </p>
+            )}
+            {errorMessage && (
+              <p className="text-xs text-red-200 bg-red-900/30 border border-red-200/30 rounded-lg px-3 py-2">
+                {errorMessage}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-secondary text-on-primary font-semibold py-4 rounded-lg hover:bg-secondary/90 active:scale-[0.98] transition-all shadow-lg shadow-secondary/20 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {loading
+                ? needsVerification
+                  ? 'Verifying...'
+                  : mode === 'login'
+                  ? 'Signing In...'
+                  : 'Creating Account...'
+                : needsVerification
+                  ? 'Verify Email'
+                  : mode === 'login'
+                  ? 'Sign In'
+                  : 'Create Account'}
             </button>
+            {needsVerification && (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleResendVerification}
+                className="w-full border border-white/30 text-white py-3 rounded-lg font-medium hover:bg-white/10 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+              >
+                Resend Code
+              </button>
+            )}
           </form>
 
           <div className="relative my-8">
@@ -331,22 +816,72 @@ function LoginView({ onLogin }: { onLogin: () => void }) {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <button className="flex items-center justify-center gap-2 py-2.5 bg-white/5 border border-white/10 rounded-lg text-stone-300 hover:bg-white/10 transition-colors">
+            <button type="button" className="flex items-center justify-center gap-2 py-2.5 bg-white/5 border border-white/10 rounded-lg text-stone-300 hover:bg-white/10 transition-colors">
               <img src="https://lh3.googleusercontent.com/aida-public/AB6AXuC1-u26NHxR7rsZ4lMlwHVhmV1vl_GjZ6fSRXuVRLTCz3ktyJ8xhUrjcZIIMPwGj1VhLMIY48FAgUphcirfcwb6z1Wa1Uq0mHeLyPDB30coCObGobylxf5nfdA0gcbwkZCyCn-zKLTYm7rMcxARSYaiI1vGELHp6ldLEW6RuswnlNI1U1W4WHc5-KyXj4ImtCv42V6RA_myD560MoGaJICOjTFDNN6NvVtHkCBOH3wLzodfAxDZdivBgClNVWP7djSzA3aRkdNi0g" alt="Google" className="w-4 h-4" />
               <span className="text-sm">Google</span>
             </button>
-            <button className="flex items-center justify-center gap-2 py-2.5 bg-white/5 border border-white/10 rounded-lg text-stone-300 hover:bg-white/10 transition-colors">
+            <button
+              type="button"
+              disabled={wechatBusy}
+              onClick={handleOpenWechatDialog}
+              className="flex items-center justify-center gap-2 py-2.5 bg-white/5 border border-white/10 rounded-lg text-stone-300 hover:bg-white/10 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+            >
               <UserIcon size={16} />
-              <span className="text-sm">Guest</span>
+              <span className="text-sm">WeChat</span>
             </button>
           </div>
+          {wechatError && (
+            <p className="mt-4 text-xs text-red-200 bg-red-900/30 border border-red-200/30 rounded-lg px-3 py-2">
+              {wechatError}
+            </p>
+          )}
 
           <footer className="mt-10 text-center">
             <p className="text-xs text-stone-400">
-              New to the library? <a href="#" className="text-secondary-container font-semibold hover:underline">Create an account</a>
+              {mode === 'login' ? 'New to the library?' : 'Already have an account?'}{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode((prev) => (prev === 'login' ? 'register' : 'login'));
+                  setLocalError('');
+                  setPendingVerificationEmail('');
+                  setVerificationHint('');
+                  setVerificationCode('');
+                }}
+                className="text-secondary-container font-semibold hover:underline"
+              >
+                {mode === 'login' ? 'Create an account' : 'Sign in'}
+              </button>
             </p>
           </footer>
         </motion.div>
+
+        {wechatDialogOpen && (
+          <div className="mt-6 bg-white/10 border border-white/20 rounded-xl p-6 text-center space-y-4">
+            <h3 className="text-lg font-serif text-on-primary">WeChat QR Login</h3>
+            {wechatQrUrl && (
+              <img src={wechatQrUrl} alt="WeChat QR" className="w-52 h-52 mx-auto rounded-md bg-white p-2" />
+            )}
+            <p className="text-xs text-stone-300">{wechatStatusText}</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                disabled={wechatBusy}
+                onClick={handleMockWechatConfirm}
+                className="flex-1 bg-secondary text-on-primary py-2 rounded-lg text-sm font-semibold disabled:opacity-70"
+              >
+                Mock Confirm Scan
+              </button>
+              <button
+                type="button"
+                onClick={() => setWechatDialogOpen(false)}
+                className="flex-1 border border-white/30 text-white py-2 rounded-lg text-sm"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="mt-12 text-center max-w-sm mx-auto">
           <div className="flex items-center justify-center gap-2 text-tertiary-fixed-dim mb-3">
@@ -483,7 +1018,42 @@ function TrendItem({ number, title, readers }: { number: string, title: string, 
   );
 }
 
-function LibraryView({ onStartReading }: { onStartReading: (bookId?: string) => void }) {
+function LibraryView({
+  onStartReading,
+  discussionMessages,
+  onPostDiscussionMessage,
+  discussionError,
+}: {
+  onStartReading: (bookId?: string) => void;
+  discussionMessages: Message[];
+  onPostDiscussionMessage: (text: string) => Promise<void>;
+  discussionError: string;
+}) {
+  const [messageInput, setMessageInput] = useState('');
+  const [isPostingMessage, setIsPostingMessage] = useState(false);
+  const forumPreviewMessages = discussionMessages.filter((msg) => !msg.isSystem).slice(-3);
+
+  const handleSendMessage = async () => {
+    const trimmed = messageInput.trim();
+    if (!trimmed) {
+      return;
+    }
+    setIsPostingMessage(true);
+    try {
+      await onPostDiscussionMessage(trimmed);
+      setMessageInput('');
+    } finally {
+      setIsPostingMessage(false);
+    }
+  };
+
+  const handleMessageKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void handleSendMessage();
+    }
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-12">
       <header className="flex flex-col md:flex-row gap-8 items-center border-b border-surface-container pb-12">
@@ -547,7 +1117,7 @@ function LibraryView({ onStartReading }: { onStartReading: (bookId?: string) => 
                 </span>
              </div>
              <div className="space-y-4">
-                {MESSAGES.slice(0, 2).map(msg => (
+                {forumPreviewMessages.map(msg => (
                   <div key={msg.id} className="flex gap-3">
                      <img src={msg.authorAvatar} className="w-8 h-8 rounded-full object-cover shrink-0" alt="avatar" />
                      <div className="space-y-1">
@@ -556,10 +1126,30 @@ function LibraryView({ onStartReading }: { onStartReading: (bookId?: string) => 
                      </div>
                   </div>
                 ))}
-             </div>
+              </div>
+              {discussionError && (
+                <p className="mt-4 text-xs text-tertiary-container bg-tertiary-fixed-dim/20 border border-tertiary-fixed-dim/40 rounded-lg px-3 py-2">
+                  {discussionError}
+                </p>
+              )}
              <div className="mt-6 flex gap-2">
-                <input type="text" placeholder="Share a thought..." className="flex-1 bg-surface-container-low border-none rounded-lg text-xs py-2 px-3 focus:ring-1 focus:ring-secondary" />
-                <button className="text-secondary"><Send size={16} /></button>
+                <input
+                  type="text"
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
+                  onKeyDown={handleMessageKeyDown}
+                  placeholder="Share a thought..."
+                  className="flex-1 bg-surface-container-low border-none rounded-lg text-xs py-2 px-3 focus:ring-1 focus:ring-secondary"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendMessage}
+                  disabled={!messageInput.trim() || isPostingMessage}
+                  className="text-secondary disabled:text-on-surface-variant/40 disabled:cursor-not-allowed"
+                  aria-label="Post to live forum"
+                >
+                  <Send size={16} />
+                </button>
              </div>
           </div>
         </div>
@@ -615,8 +1205,21 @@ function LibraryView({ onStartReading }: { onStartReading: (bookId?: string) => 
   );
 }
 
-function ReadingRoomView({ book }: { book: Book }) {
+function ReadingRoomView({
+  book,
+  discussionMessages,
+  onPostDiscussionMessage,
+  discussionError,
+}: {
+  book: Book;
+  discussionMessages: Message[];
+  onPostDiscussionMessage: (text: string) => Promise<void>;
+  discussionError: string;
+}) {
   const [message, setMessage] = useState('');
+  const [isPostingMessage, setIsPostingMessage] = useState(false);
+  const discussionEndRef = useRef<HTMLDivElement | null>(null);
+  const readingRoomRef = useRef<HTMLDivElement | null>(null);
   const progressPct = Math.min(100, Math.max(0, book.progress ?? 0));
   const highlight = ANNOTATIONS.find((a) => a.bookId === book.id) ?? ANNOTATIONS[0];
   const estMinsRemaining =
@@ -624,8 +1227,33 @@ function ReadingRoomView({ book }: { book: Book }) {
       ? Math.max(1, Math.round(((book.totalPages - book.readPages) / Math.max(book.totalPages, 1)) * 60))
       : 12;
 
+  const handleSendMessage = async () => {
+    const trimmed = message.trim();
+    if (!trimmed) {
+      return;
+    }
+    setIsPostingMessage(true);
+    try {
+      await onPostDiscussionMessage(trimmed);
+      setMessage('');
+    } finally {
+      setIsPostingMessage(false);
+    }
+  };
+
+  const handleMessageKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void handleSendMessage();
+    }
+  };
+
+  useEffect(() => {
+    discussionEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [discussionMessages.length]);
+
   return (
-    <div className="relative flex h-[calc(100vh-64px)] overflow-hidden font-sans">
+    <div ref={readingRoomRef} className="relative flex h-[calc(100vh-64px)] overflow-hidden font-sans">
       {/* Discussion Sidebar - Hidden on mobile, shown on md+ */}
       <aside className="hidden lg:flex flex-col w-80 bg-surface-container-low border-r border-surface-container shrink-0">
         <div className="p-6 border-b border-surface-container bg-surface-container/50">
@@ -639,7 +1267,7 @@ function ReadingRoomView({ book }: { book: Book }) {
         </div>
         
         <div className="flex-1 overflow-y-auto p-6 space-y-6 hide-scrollbar">
-          {MESSAGES.map(msg => (
+          {discussionMessages.map(msg => (
             <div key={msg.id} className={`flex flex-col gap-2 ${msg.isSystem ? 'items-center py-2' : ''}`}>
               {!msg.isSystem ? (
                 <>
@@ -659,18 +1287,31 @@ function ReadingRoomView({ book }: { book: Book }) {
               )}
             </div>
           ))}
+          <div ref={discussionEndRef} />
         </div>
 
         <div className="p-6 bg-surface-container-low border-t border-surface-container">
+          {discussionError && (
+            <p className="mb-3 text-xs text-tertiary-container bg-tertiary-fixed-dim/20 border border-tertiary-fixed-dim/40 rounded-lg px-3 py-2">
+              {discussionError}
+            </p>
+          )}
           <div className="relative">
             <input 
               type="text" 
               value={message}
               onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleMessageKeyDown}
               placeholder="Share a thought..."
               className="w-full bg-white border-none rounded-xl py-3 pl-4 pr-12 text-sm shadow-sm focus:ring-1 focus:ring-secondary"
             />
-            <button type="button" className="absolute right-2 top-1.5 p-1.5 text-secondary hover:bg-secondary-container rounded-lg transition-colors" aria-label="Send message">
+            <button
+              type="button"
+              onClick={handleSendMessage}
+              disabled={!message.trim() || isPostingMessage}
+              className="absolute right-2 top-1.5 p-1.5 text-secondary hover:bg-secondary-container rounded-lg transition-colors disabled:text-on-surface-variant/40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              aria-label="Send message"
+            >
               <Send size={18} />
             </button>
           </div>
@@ -754,41 +1395,67 @@ function ReadingRoomView({ book }: { book: Book }) {
         </div>
       </section>
 
-      {/* Voice Chat Component (Left Overlay) */}
-      <div className="absolute bottom-24 left-6 hidden xl:block w-48">
-         <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-surface-container space-y-4">
-            <div className="flex items-center justify-between">
-               <div className="flex items-center gap-2 text-primary font-bold">
-                  <Mic size={14} className="text-secondary" />
-                  <span className="text-xs uppercase tracking-widest">Voice</span>
-               </div>
-               <span className="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-               {[1, 2, 3].map(i => (
-                 <div key={i} className="flex flex-col items-center gap-1">
-                    <div className={`relative ${i === 1 ? 'ring-2 ring-secondary ring-offset-2' : ''} rounded-full`}>
-                       <img src={`https://i.pravatar.cc/100?u=${i+10}`} alt="user" className="w-10 h-10 rounded-full object-cover" />
-                       {i === 1 && <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-secondary rounded-full border-2 border-white shadow-sm"></div>}
-                    </div>
-                 </div>
-               ))}
-               <button className="w-10 h-10 rounded-full border-2 border-dashed border-outline-variant/30 flex items-center justify-center text-on-surface-variant hover:border-secondary hover:text-secondary transition-all">
-                  <Plus size={16} />
-               </button>
-            </div>
-         </div>
-      </div>
+      <DraggableVoicePanel dragConstraintsRef={readingRoomRef} />
     </div>
   );
 }
 
+function DraggableVoicePanel({
+  dragConstraintsRef,
+}: {
+  dragConstraintsRef: RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <motion.div
+      drag
+      dragConstraints={dragConstraintsRef}
+      dragElastic={0}
+      dragMomentum={false}
+      className="absolute bottom-24 left-6 z-30 hidden w-48 cursor-grab touch-none active:cursor-grabbing xl:block"
+    >
+      <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-surface-container space-y-4">
+        <div
+          className="flex w-full items-center justify-between text-left"
+          aria-label="Drag voice panel"
+        >
+          <div className="flex items-center gap-2 text-primary font-bold">
+            <Mic size={14} className="text-secondary" />
+            <span className="text-xs uppercase tracking-widest">Voice</span>
+          </div>
+          <span className="w-2 h-2 rounded-full bg-secondary animate-pulse" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="flex flex-col items-center gap-1">
+              <div className={`relative ${i === 1 ? 'ring-2 ring-secondary ring-offset-2' : ''} rounded-full`}>
+                <img src={`https://i.pravatar.cc/100?u=${i + 10}`} alt="user" className="w-10 h-10 rounded-full object-cover" />
+                {i === 1 && <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-secondary rounded-full border-2 border-white shadow-sm" />}
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="w-10 h-10 rounded-full border-2 border-dashed border-outline-variant/30 flex items-center justify-center text-on-surface-variant hover:border-secondary hover:text-secondary transition-all"
+            aria-label="Add voice participant"
+          >
+            <Plus size={16} />
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function ProfileView({
+  authUser,
   onStartReading,
   onViewLibrary,
+  onLogout,
 }: {
+  authUser: AuthUser | null;
   onStartReading: (bookId?: string) => void;
   onViewLibrary: () => void;
+  onLogout: () => void;
 }) {
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-12 pb-24">
@@ -801,8 +1468,8 @@ function ProfileView({
                </div>
             </div>
             <div className="text-center lg:text-left space-y-2">
-               <h2 className="text-5xl font-serif text-primary">{CURRENT_USER.name}</h2>
-               <p className="text-xl font-serif text-on-surface-variant italic">{CURRENT_USER.bio}</p>
+               <h2 className="text-5xl font-serif text-primary">{authUser?.displayName ?? CURRENT_USER.name}</h2>
+               <p className="text-xl font-serif text-on-surface-variant italic">{authUser?.email ?? CURRENT_USER.bio}</p>
             </div>
             <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
                {CURRENT_USER.badges.map(badge => (
@@ -811,6 +1478,13 @@ function ProfileView({
                  </span>
                ))}
             </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="px-4 py-2 rounded-lg border border-surface-container-highest text-sm font-semibold text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors"
+            >
+              Log out
+            </button>
          </div>
 
          <div className="lg:col-span-8 flex flex-col gap-12">

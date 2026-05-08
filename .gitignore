@@ -23,3 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
+
+# Backend local state
+backend/data/
+backend/.m2/
+backend/target/
+*.db
+*.db-shm
+*.db-wal

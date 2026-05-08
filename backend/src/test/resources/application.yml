@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: jdbc:sqlite:file:readtogether-test?mode=memory&cache=shared
+    driver-class-name: org.sqlite.JDBC
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.community.dialect.SQLiteDialect
+
+app:
+  jwt:
+    secret: test-secret-readtogether-32-characters-minimum
+    expiration: 3600
+  cors:
+    allowed-origins: http://localhost:3000
+  mail:
+    enabled: false
