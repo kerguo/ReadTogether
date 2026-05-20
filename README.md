@@ -1,9 +1,104 @@
 # ReadTogether
 
-Frontend code lives in the **`frontend/`** folder.
+ReadTogether 是一个阅读房间应用，包含 React/Vite 前端、Spring Boot 后端和基于 LiveKit 的 Reading Room 语音能力。
+
+## 本地环境地址
+
+- 前端：`http://localhost:3002/`
+- 后端：`http://localhost:8081`
+- LiveKit：`ws://localhost:7880`
+
+## 前置依赖
+
+- Node.js / npm
+- Java 21+ 与 Maven
+- Docker（用于本地 LiveKit）
+- SQLite CLI（可选，用于查看或清理本地测试数据）
+
+## 启动本地环境
+
+建议按 LiveKit、后端、前端的顺序分别开 3 个终端启动。
+
+### 1. 启动 LiveKit
 
 ```bash
-cd frontend && npm install && npm run dev
+docker run --rm --name readtogether-livekit-local \
+  -p 7880:7880 -p 7881:7881 -p 7882:7882/udp \
+  livekit/livekit-server --dev --bind 0.0.0.0
+```
+
+本地开发模式使用 LiveKit 默认凭据：
+
+```text
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=secret
+LIVEKIT_URL=ws://localhost:7880
+```
+
+### 2. 启动后端
+
+```bash
+cd backend
+env PORT=8081 MAIL_ENABLED=false VOICE_ENABLED=true \
+  LIVEKIT_URL=ws://localhost:7880 \
+  LIVEKIT_API_KEY=devkey \
+  LIVEKIT_API_SECRET=secret \
+  mvn spring-boot:run
+```
+
+后端默认使用 SQLite 本地文件库：`backend/data/readtogether.db`。
+
+### 3. 启动前端
+
+首次运行先安装依赖：
+
+```bash
+cd frontend
+npm install
+```
+
+启动 Vite：
+
+```bash
+cd frontend
+env VITE_API_BASE_URL=http://localhost:8081 npm run dev -- --port=3002
+```
+
+打开 `http://localhost:3002/`。
+
+## Reading Room 语音验证
+
+语音功能依赖三个服务同时运行：
+
+1. LiveKit：`ws://localhost:7880`
+2. 后端：`http://localhost:8081`
+3. 前端：`http://localhost:3002/`
+
+进入前端后登录账号，打开 `Reading Rooms`，点击 Voice 面板里的加入按钮。本地 `localhost` 可以直接申请麦克风权限；生产环境必须使用 HTTPS。
+
+后端语音 token 接口：
+
+```text
+POST /api/books/{bookId}/voice/token
+Authorization: Bearer <accessToken>
+```
+
+房间名按书籍生成，例如 `book-1`。
+
+## 常用检查
+
+前端类型检查：
+
+```bash
+cd frontend
+npm run lint
+```
+
+后端测试：
+
+```bash
+cd backend
+mvn test
 ```
 
 ## Vercel 部署
@@ -14,22 +109,3 @@ cd frontend && npm install && npm run dev
 2. **备选：** 留空（使用**仓库根目录**），由仓库根目录的 `vercel.json` 中 `cd frontend && …` 负责构建与输出路径。
 
 `dist` / `frontend/dist` 是 `npm run build` 的**输出目录**，不会出现在 Git 里，**不要**设成 Root Directory。
-
----
-
-# React + Vite (frontend)
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.

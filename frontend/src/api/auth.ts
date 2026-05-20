@@ -66,6 +66,36 @@ export interface DiscussionMessageResponse {
   createdAt: string;
 }
 
+export interface VocabularyEntryResponse {
+  id: number;
+  bookId: string;
+  userEmail: string;
+  word: string;
+  context: string;
+  createdAt: string;
+}
+
+export interface BookResponse {
+  id: string;
+  title: string;
+  author: string;
+  category: string;
+  coverUrl: string | null;
+  description: string;
+  contentText: string;
+  totalPages: number;
+  sourceFilename: string;
+  createdAt: string;
+}
+
+export interface VoiceTokenResponse {
+  serverUrl: string;
+  token: string;
+  roomName: string;
+  participantName: string;
+  participantId: string;
+}
+
 async function parseError(response: Response): Promise<string> {
   let message = `Request failed with status ${response.status}`;
   try {
@@ -206,6 +236,84 @@ export async function createDiscussionMessage(
       body: JSON.stringify({ text }),
     }
   );
+}
+
+export async function listVocabularyEntries(token: string): Promise<VocabularyEntryResponse[]> {
+  return request<VocabularyEntryResponse[]>('/api/vocabulary', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
+
+export async function listBookVocabularyEntries(
+  bookId: string,
+  token: string
+): Promise<VocabularyEntryResponse[]> {
+  return request<VocabularyEntryResponse[]>(
+    `/api/books/${encodeURIComponent(bookId)}/vocabulary`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+}
+
+export async function createVocabularyEntry(
+  bookId: string,
+  token: string,
+  payload: { word: string; context: string }
+): Promise<VocabularyEntryResponse> {
+  return request<VocabularyEntryResponse>(
+    `/api/books/${encodeURIComponent(bookId)}/vocabulary`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function listBooks(token: string): Promise<BookResponse[]> {
+  return request<BookResponse[]>('/api/books', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
+
+export async function uploadBookPdf(
+  token: string,
+  payload: { title: string; author: string; file: File }
+): Promise<BookResponse> {
+  const formData = new FormData();
+  formData.append('title', payload.title);
+  formData.append('author', payload.author);
+  formData.append('file', payload.file);
+
+  return request<BookResponse>('/api/books', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+}
+
+export async function createVoiceToken(bookId: string, token: string): Promise<VoiceTokenResponse> {
+  return request<VoiceTokenResponse>(`/api/books/${encodeURIComponent(bookId)}/voice/token`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
 }
 
 export function saveAccessToken(token: string): void {

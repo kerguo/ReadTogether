@@ -15,6 +15,9 @@ export interface Book {
   rating?: number;
   reviewsCount?: number;
   description?: string;
+  contentText?: string;
+  sourceFilename?: string;
+  createdAt?: string;
 }
 
 export interface Annotation {
@@ -31,11 +34,20 @@ export interface Annotation {
 
 export interface Message {
   id: string;
+  authorEmail?: string;
   authorName: string;
   authorAvatar: string;
   text: string;
   timestamp: string;
   isSystem?: boolean;
+}
+
+export interface VocabularyEntry {
+  id: string;
+  bookId: string;
+  word: string;
+  context: string;
+  createdAt: string;
 }
 
 export interface User {

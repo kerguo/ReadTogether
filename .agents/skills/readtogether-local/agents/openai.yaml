@@ -1,0 +1,7 @@
+interface:
+  display_name: "ReadTogether Local"
+  short_description: "Local dev, tests, and voice setup"
+  default_prompt: "Use $readtogether-local to run or verify the ReadTogether app locally."
+
+policy:
+  allow_implicit_invocation: true

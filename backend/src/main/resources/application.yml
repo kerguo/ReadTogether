@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: readtogether-backend
+  servlet:
+    multipart:
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:3MB}
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:3MB}
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
@@ -31,9 +35,15 @@ app:
     secret: ${JWT_SECRET:readtogether-local-dev-secret-change-before-production-32}
     expiration: ${JWT_EXPIRATION_SECONDS:86400}
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
   mail:
     enabled: ${MAIL_ENABLED:true}
     from: ${MAIL_FROM:admin@readtogether.com}
   wechat:
     mock-scan-base-url: ${WECHAT_MOCK_SCAN_BASE_URL:http://localhost:8080}
+  voice:
+    enabled: ${VOICE_ENABLED:false}
+    livekit:
+      url: ${LIVEKIT_URL:}
+      api-key: ${LIVEKIT_API_KEY:}
+      api-secret: ${LIVEKIT_API_SECRET:}

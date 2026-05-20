@@ -1,4 +1,4 @@
-package com.readtogether.backend.discussion;
+package com.readtogether.backend.vocabulary;
 
 import com.readtogether.backend.user.AppUser;
 import jakarta.persistence.Column;
@@ -16,8 +16,8 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 @Entity
-@Table(name = "discussion_messages")
-public class DiscussionMessage {
+@Table(name = "vocabulary_entries")
+public class VocabularyEntry {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -27,26 +27,26 @@ public class DiscussionMessage {
     private String bookId;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "user_id", nullable = false, foreignKey = @ForeignKey(name = "fk_discussion_messages_user"))
+    @JoinColumn(name = "user_id", nullable = false, foreignKey = @ForeignKey(name = "fk_vocabulary_entries_user"))
     private AppUser user;
 
-    @Column(nullable = false)
-    private String authorAvatar;
+    @Column(nullable = false, length = 120)
+    private String word;
 
-    @Column(nullable = false, length = 2000)
-    private String text;
+    @Column(nullable = false, length = 1000)
+    private String context;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    protected DiscussionMessage() {
+    protected VocabularyEntry() {
     }
 
-    public DiscussionMessage(String bookId, AppUser user, String authorAvatar, String text) {
+    public VocabularyEntry(String bookId, AppUser user, String word, String context) {
         this.bookId = bookId;
         this.user = user;
-        this.authorAvatar = authorAvatar;
-        this.text = text;
+        this.word = word;
+        this.context = context;
     }
 
     @PrePersist
@@ -68,12 +68,12 @@ public class DiscussionMessage {
         return user;
     }
 
-    public String getAuthorAvatar() {
-        return authorAvatar;
+    public String getWord() {
+        return word;
     }
 
-    public String getText() {
-        return text;
+    public String getContext() {
+        return context;
     }
 
     public Instant getCreatedAt() {

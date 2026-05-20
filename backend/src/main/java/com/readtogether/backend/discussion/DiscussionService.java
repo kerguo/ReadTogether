@@ -42,8 +42,7 @@ public class DiscussionService {
                 .orElseThrow(() -> new IllegalArgumentException("User does not exist"));
         DiscussionMessage message = new DiscussionMessage(
                 normalizedBookId,
-                user.getEmail(),
-                user.getDisplayName(),
+                user,
                 DEFAULT_AUTHOR_AVATAR + "-" + user.getId(),
                 trimmedText
         );

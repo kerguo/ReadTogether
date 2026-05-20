@@ -17,8 +17,8 @@ public record DiscussionMessageResponse(
         return new DiscussionMessageResponse(
                 message.getId(),
                 message.getBookId(),
-                message.getAuthorEmail(),
-                message.getAuthorName(),
+                message.getUser().getEmail(),
+                message.getUser().getDisplayName(),
                 message.getAuthorAvatar(),
                 message.getText(),
                 message.getCreatedAt()

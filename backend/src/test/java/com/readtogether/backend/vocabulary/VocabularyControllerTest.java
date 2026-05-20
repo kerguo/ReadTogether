@@ -1,4 +1,4 @@
-package com.readtogether.backend.discussion;
+package com.readtogether.backend.vocabulary;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,7 +25,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class DiscussionControllerTest {
+class VocabularyControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -40,55 +40,58 @@ class DiscussionControllerTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void storesDiscussionMessagesByBook() throws Exception {
-        assertDiscussionMessageSchemaUsesUserId();
-        String token = registerVerifyAndLogin("discussion-reader@example.com", "Discussion Reader");
+    void storesVocabularyEntriesForCurrentUserAndBook() throws Exception {
+        assertVocabularySchemaUsesUserId();
+        String token = registerVerifyAndLogin("vocabulary-reader@example.com", "Vocabulary Reader");
 
-        mockMvc.perform(get("/api/books/1/discussion/messages")
-                        .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(0)));
-
-        mockMvc.perform(post("/api/books/1/discussion/messages")
+        mockMvc.perform(post("/api/books/1/vocabulary")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.createObjectNode()
-                                .put("text", "This passage changes how I read the room.")
+                                .put("word", "lark")
+                                .put("context", "But you'll have to be up with the lark.")
                                 .toString()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.bookId").value("1"))
-                .andExpect(jsonPath("$.authorEmail").value("discussion-reader@example.com"))
-                .andExpect(jsonPath("$.authorName").value("Discussion Reader"))
-                .andExpect(jsonPath("$.text").value("This passage changes how I read the room."))
+                .andExpect(jsonPath("$.userEmail").value("vocabulary-reader@example.com"))
+                .andExpect(jsonPath("$.word").value("lark"))
+                .andExpect(jsonPath("$.context").value("But you'll have to be up with the lark."))
                 .andExpect(jsonPath("$.createdAt").isString());
 
-        mockMvc.perform(get("/api/books/1/discussion/messages")
+        mockMvc.perform(get("/api/books/1/vocabulary")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(1)))
-                .andExpect(jsonPath("$[0].text").value("This passage changes how I read the room."));
+                .andExpect(jsonPath("$[0].word").value("lark"));
 
-        mockMvc.perform(get("/api/books/2/discussion/messages")
+        mockMvc.perform(get("/api/books/2/vocabulary")
                         .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(0)));
-    }
 
-    private void assertDiscussionMessageSchemaUsesUserId() {
-        List<String> columns = jdbcTemplate.query("PRAGMA table_info(discussion_messages)",
-                (rs, rowNum) -> rs.getString("name"));
-        assertThat(columns).contains("user_id");
-        assertThat(columns).doesNotContain("author_email", "author_name");
+        mockMvc.perform(get("/api/vocabulary")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", hasSize(1)))
+                .andExpect(jsonPath("$[0].word").value("lark"));
     }
 
     @Test
-    void requiresAuthenticationForDiscussionMessages() throws Exception {
-        mockMvc.perform(post("/api/books/1/discussion/messages")
+    void requiresAuthenticationForVocabularyEntries() throws Exception {
+        mockMvc.perform(post("/api/books/1/vocabulary")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.createObjectNode()
-                                .put("text", "Unauthorized message")
+                                .put("word", "lark")
+                                .put("context", "context")
                                 .toString()))
                 .andExpect(status().isForbidden());
+    }
+
+    private void assertVocabularySchemaUsesUserId() {
+        List<String> columns = jdbcTemplate.query("PRAGMA table_info(vocabulary_entries)",
+                (rs, rowNum) -> rs.getString("name"));
+        assertThat(columns).contains("user_id");
+        assertThat(columns).doesNotContain("user_email");
     }
 
     private String registerVerifyAndLogin(String email, String displayName) throws Exception {

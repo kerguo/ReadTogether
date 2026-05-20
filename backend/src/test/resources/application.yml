@@ -1,4 +1,8 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:3MB}
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:3MB}
   datasource:
     url: jdbc:sqlite:file:readtogether-test?mode=memory&cache=shared
     driver-class-name: org.sqlite.JDBC
@@ -17,3 +21,9 @@ app:
     allowed-origins: http://localhost:3000
   mail:
     enabled: false
+  voice:
+    enabled: false
+    livekit:
+      url:
+      api-key:
+      api-secret:

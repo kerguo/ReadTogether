@@ -16,8 +16,14 @@ mvn spring-boot:run
 - `PORT`: 服务端口，默认 `8080`
 - `JWT_SECRET`: JWT 签名密钥，生产环境必须替换，至少 32 个字符
 - `JWT_EXPIRATION_SECONDS`: Token 有效期，默认 `86400`
-- `CORS_ALLOWED_ORIGINS`: 允许跨域的前端地址，默认 `http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173`
+- `CORS_ALLOWED_ORIGINS`: 允许跨域的前端地址，默认覆盖本地 Vite 常用端口 `3000`、`3001`、`3002`、`5173`、`5174`
 - `DB_URL`: SQLite 连接地址，默认 `jdbc:sqlite:./data/readtogether.db`
+- `UPLOAD_MAX_FILE_SIZE`: 单个上传文件大小上限，默认 `3MB`
+- `UPLOAD_MAX_REQUEST_SIZE`: 单次上传请求大小上限，默认 `3MB`
+- `VOICE_ENABLED`: 是否启用 Reading Room 语音房间，默认 `false`
+- `LIVEKIT_URL`: LiveKit 服务地址，例如 `ws://localhost:7880` 或 `wss://your-livekit.example.com`
+- `LIVEKIT_API_KEY`: LiveKit API Key
+- `LIVEKIT_API_SECRET`: LiveKit API Secret
 - `MAIL_ENABLED`: 是否启用真实邮件发送，默认 `true`（测试环境可设为 `false`）
 - `MAIL_HOST`: SMTP 主机，默认 `smtp.gmail.com`
 - `MAIL_PORT`: SMTP 端口，默认 `587`
@@ -36,6 +42,30 @@ export MAIL_FROM="admin@readtogether.com"
 然后重启后端服务，注册后验证码会发送到目标邮箱。
 
 注意：如果使用 Gmail SMTP，`MAIL_FROM` 可能需要与 Gmail 账号或已验证别名一致，否则会被拒发或被改写。
+
+### Reading Room 语音配置
+
+本地可以先启动 LiveKit：
+
+```bash
+docker run --rm -p 7880:7880 -p 7881:7881 -p 7882:7882/udp \
+  livekit/livekit-server --dev
+```
+
+然后启动后端前设置：
+
+```bash
+export VOICE_ENABLED=true
+export LIVEKIT_URL="ws://localhost:7880"
+export LIVEKIT_API_KEY="devkey"
+export LIVEKIT_API_SECRET="secret"
+```
+
+语音令牌接口：
+
+`POST /api/books/{bookId}/voice/token`
+
+需要 `Authorization: Bearer <accessToken>`，返回 LiveKit `serverUrl`、`token`、`roomName`、`participantName` 和 `participantId`。`roomName` 按 `book-{bookId}` 生成。
 
 ## 接口
 
